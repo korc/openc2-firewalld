@@ -18,7 +18,7 @@ export GOPATH=$PWD/go
 go get -u github.com/korc/openc2-firewalld/cmd/firewalld-oc2-client
 go get -u github.com/korc/openc2-firewalld/cmd/oc2-proxy-server
 $GOPATH/src/github.com/korc/openc2-firewalld/test/gen-certs.sh
-$GOPATH/go/bin/oc2-proxy-server &
+$GOPATH/bin/oc2-proxy-server &
 sudo systemctl start firewalld
 sudo $GOPATH/bin/firewalld-oc2-client
 ```
