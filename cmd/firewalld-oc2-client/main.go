@@ -22,7 +22,7 @@ func main() {
 		log.Fatal("Could not get FirewallD control: ", err)
 	}
 
-	server := flag.String("server", "http://localhost:1512/oc2", "OpenC2 server URL")
+	server := flag.String("server", "https://localhost:1512/oc2", "OpenC2 server URL")
 	zone := flag.String("zone", fwdctrl.Zone, "Zone to manipulate")
 	assetID := flag.String("id", "", "Asset ID to use")
 	waitIntervalFlag := flag.Float64("interval", 10, "wait interval in seconds")
@@ -43,6 +43,9 @@ func main() {
 		cert, err := tls.LoadX509KeyPair(*certFile, *keyFile)
 		if err != nil {
 			log.Fatalf("Cannot read cert/key from %#v/%#v: %s", *certFile, *keyFile, err)
+		}
+		if http.DefaultClient.Transport == nil {
+			log.Fatal("Cannot use certificate without https URL")
 		}
 		http.DefaultClient.Transport.(*http.Transport).TLSClientConfig.Certificates = []tls.Certificate{cert}
 	}
