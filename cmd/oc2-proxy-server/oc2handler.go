@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -79,15 +80,24 @@ func (rqm *OpenC2RequestMultiplexer) handlePost(w http.ResponseWriter, r *http.R
 
 func (rqm *OpenC2RequestMultiplexer) handleGet(w http.ResponseWriter, r *http.Request) {
 	var asset *openC2AssetRecord
-	assetID := r.Header.Get(openc2.OpenC2AssetIDHeader)
+	var assetID string
+	useTLS := r.TLS != nil && len(r.TLS.PeerCertificates) > 0
+	if useTLS {
+		assetID = base64.RawURLEncoding.EncodeToString(r.TLS.PeerCertificates[0].RawSubject)
+	} else {
+		assetID = r.Header.Get(openc2.OpenC2AssetIDHeader)
+	}
 	if gotAsset, ok := rqm.assets[assetID]; !ok {
-		assetID := RandStringBytes(16)
+		if !useTLS || assetID == "" {
+			assetID = RandStringBytes(16)
+		}
 		asset = &openC2AssetRecord{lastAccess: time.Now(), queueIndex: 0}
 		rqm.assets[assetID] = asset
 		w.Header().Set(openc2.OpenC2AssetIDHeader, assetID)
 		log.Printf("Created new asset ID: %#v", assetID)
 	} else {
 		asset = gotAsset
+		log.Printf("Asset ID: %#v", assetID)
 	}
 
 	asset.lastAccess = time.Now()

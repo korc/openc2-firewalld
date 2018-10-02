@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/korc/openc2-firewalld"
@@ -24,8 +26,26 @@ func main() {
 	zone := flag.String("zone", fwdctrl.Zone, "Zone to manipulate")
 	assetID := flag.String("id", "", "Asset ID to use")
 	waitIntervalFlag := flag.Float64("interval", 10, "wait interval in seconds")
+	certFile := flag.String("cert", "client.crt", "Client X509 certificate")
+	keyFile := flag.String("key", "client.key", "Private key for x509 certificate")
+	// serverCa := flag.String("ca", "ca.crt", "Server CA")
 
 	flag.Parse()
+
+	if strings.HasPrefix(*server, "https") {
+		http.DefaultClient.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	}
+
+	if *certFile != "" {
+		if *keyFile == "" {
+			*keyFile = *certFile
+		}
+		cert, err := tls.LoadX509KeyPair(*certFile, *keyFile)
+		if err != nil {
+			log.Fatalf("Cannot read cert/key from %#v/%#v: %s", *certFile, *keyFile, err)
+		}
+		http.DefaultClient.Transport.(*http.Transport).TLSClientConfig.Certificates = []tls.Certificate{cert}
+	}
 	if *zone != fwdctrl.Zone {
 		log.Printf("FW zone set to %s", *zone)
 		fwdctrl.Zone = *zone
