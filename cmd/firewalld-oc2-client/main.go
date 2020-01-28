@@ -19,6 +19,7 @@ const userAgent = "OpenC2-FirewallD-Client/" + clientVersion
 
 var UnknownActionError = errors.New("Unknown action")
 var UnknownTargetError = errors.New("Unknown target type")
+var InvalidRuleNumber = errors.New("Invalid rule number")
 
 func main() {
 	fwdctrl, err := NewFirewallDControl()

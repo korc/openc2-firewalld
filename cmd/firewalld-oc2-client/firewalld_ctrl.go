@@ -24,6 +24,7 @@ type FirewallDControl struct {
 	Connection *dbus.Conn
 	FwD1       dbus.BusObject
 	Zone       string
+	ruleIdMap  map[float64]*FirewallDRule
 }
 
 type FirewallDRule struct {
@@ -105,8 +106,18 @@ func NewFirewallDControl() (*FirewallDControl, error) {
 	if err = ret.FwD1.Call(fwd1Interface+".getDefaultZone", 0).Store(&ret.Zone); err != nil {
 		return nil, err
 	}
+	ret.ruleIdMap = make(map[float64]*FirewallDRule)
 
 	return ret, nil
+}
+
+func (fwd *FirewallDControl) RemoveIC2Rule(rule *FirewallDRule) (callRet string, err error) {
+	log.Printf("Removing rule: %s", rule)
+	if err = fwd.FwD1.Call(fwd1Interface+".zone.removeRichRule", 0, fwd.Zone, rule.String()).Store(&callRet); err != nil {
+		log.Printf("Could not remove rule %#v: %s", rule, err)
+		return callRet, err
+	}
+	return callRet, nil
 }
 
 func (fwd *FirewallDControl) AddIC2Rule(rule *FirewallDRule) (string, error) {
@@ -122,6 +133,8 @@ func (fwd *FirewallDControl) AddIC2Rule(rule *FirewallDRule) (string, error) {
 func (fwd *FirewallDControl) OpenC2Act(oc2cmd openc2.OpenC2Command) error {
 	log.Printf("Command: %#v", oc2cmd)
 	var policy FwDPolicy
+	var ruleId float64
+	haveRuleId := false
 	switch oc2cmd.Action {
 	case openc2.ActionDeny:
 		policy = FwDPolicyReject
@@ -141,11 +154,41 @@ func (fwd *FirewallDControl) OpenC2Act(oc2cmd openc2.OpenC2Command) error {
 							log.Printf("WARNING: unknown drop_process: %#v", dropProcess)
 						}
 					}
+					if insertRule, haveInsertRule := slpfMap["insert_rule"]; haveInsertRule {
+						if insertRuleFloat, ok := insertRule.(float64); ok {
+							ruleId = insertRuleFloat
+							haveRuleId = true
+						}
+					}
 				}
 			}
 		}
 	case openc2.ActionAllow:
 		policy = FwDPolicyAccept
+	case openc2.ActionDelete:
+		if target, haveTarget := oc2cmd.Target.(openc2.OpenC2GenericTarget); haveTarget {
+			if slpfRuleNumber, haveSlpfRuleNr := target["slpf:rule_number"]; haveSlpfRuleNr {
+				if slpfRuleNumberInt, ok := slpfRuleNumber.(float64); ok {
+					if rule, ok := fwd.ruleIdMap[slpfRuleNumberInt]; ok {
+						if callret, err := fwd.RemoveIC2Rule(rule); err != nil {
+							return err
+						} else {
+							log.Printf("Removing rule OK: %s", callret)
+							delete(fwd.ruleIdMap, slpfRuleNumberInt)
+							return nil
+						}
+					} else {
+						return InvalidRuleNumber
+					}
+				} else {
+					return UnknownTargetError
+				}
+			} else {
+				return UnknownTargetError
+			}
+		} else {
+			return UnknownTargetError
+		}
 	default:
 		log.Printf("Don't know what to do with action %#v", oc2cmd.Action)
 		return UnknownActionError
@@ -159,6 +202,9 @@ func (fwd *FirewallDControl) OpenC2Act(oc2cmd openc2.OpenC2Command) error {
 		return err
 	} else {
 		log.Printf("Action done: %#v", res)
+		if haveRuleId {
+			fwd.ruleIdMap[ruleId] = rule
+		}
 	}
 	return nil
 }
