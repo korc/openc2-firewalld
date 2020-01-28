@@ -31,6 +31,7 @@ hdr_file="${resp_file%.json}.hdr"
 echo "<-- RESPONSE in $resp_file"
 r curl -D "$hdr_file" -o "$resp_file" \
   --cacert "$ca_crt" --cert "$crt" --key "$key" \
+  -H "Content-Type: application/openc2-cmd+json;version=1.0" \
   -H "X-Request-ID: $request_id" \
   --data-binary "@$1" \
   "$oc2_url"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -68,11 +69,17 @@ func (rqm *OpenC2RequestMultiplexer) handlePost(w http.ResponseWriter, r *http.R
 	if requestId := r.Header.Get(openc2.OpenC2RequestIDHeader); requestId != "" {
 		w.Header().Set(openc2.OpenC2RequestIDHeader, requestId)
 	}
+	if ctype := r.Header.Get("Content-Type"); ctype != openc2.OpenC2CommandType {
+		log.Printf("Wrong Content-Type header: %#v", ctype)
+		rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusBadRequest,
+			StatusText: fmt.Sprintf("Wrong Content-Type: %#v, expected %#v", ctype, openc2.OpenC2CommandType)})
+		return
+	}
 	if rqm.cmdSchema != nil {
 		if err := rqm.cmdSchema.Validate(bytes.NewReader(body)); err != nil {
 			log.Printf("Schema validation failed: %s", err)
 			rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusBadRequest,
-				StatusText: "Data not compliant to schema"})
+				StatusText: fmt.Sprintf("Data not compliant to schema:\n%s", err)})
 			return
 		}
 	}
