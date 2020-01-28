@@ -2,7 +2,7 @@
 
 This is a test of standard under development, provided for illustration purposes only.
 
-It is loosely based on what [`openc2-cmdgen`](https://github.com/netcoredor/openc2-cmdgen) (commit c90f08f) produces and what was on the table for WD08 of [OpenC2 Language Specification](https://github.com/oasis-tcs/openc2-oc2ls) and WD02 of [OpenC2 HTTPS implementation specification](https://github.com/oasis-tcs/openc2-impl-https).
+Tries to implement [FirewallD](https://firewalld.org)-based [SLPF](https://docs.oasis-open.org/openc2/oc2slpf/v1.0/oc2slpf-v1.0.html) actuator for [OpenC2](https://docs.oasis-open.org/openc2/oc2ls/v1.0/oc2ls-v1.0.html) over [HTTPS](https://docs.oasis-open.org/openc2/open-impl-https/v1.0/open-impl-https-v1.0.html).
 
 *No warranty whatsoever.*
 
@@ -10,17 +10,16 @@ It is loosely based on what [`openc2-cmdgen`](https://github.com/netcoredor/open
 
 ![https://mermaidjs.github.io/mermaid-live-editor/#/edit/eyJjb2RlIjoiZ3JhcGggTFJcbnN1YmdyYXBoIE9DMlByb3h5XG4gIHByeChmYTpmYS1zZXJ2ZXIgb2MyLXByb3h5LXNlcnZlcilcbiAgY3VybChmYTpmYS10ZXJtaW5hbCBjdXJsIC1kICcnJGNtZCcnIGh0dHBzOi8vLi4uKSAtLT4gfGh0dHBzIFBPU1R8cHJ4XG4gIGNtZGdlbihmYTpmYS1kZXNrdG9wIG9wZW5jMi1jbWRnZW4gYXQgaHR0cHM6Ly8uLi4vKSAtLT58aHR0cHMgUE9TVHwgcHJ4XG5lbmRcblxuc3ViZ3JhcGggRmlyZXdhbGxcbiAgY2wxKGZhOmZhLXBsdWcgZmlyZXdhbGxkLW9jMi1jbGllbnQpIC0tLXx1bml4IHNvY2tldHwgZGJ1czFcbiAgZndkMShmYTpmYS1taWNyb2NoaXAgRmlyZXdhbGxEKSAtLS0gfHVuaXggc29ja2V0fGRidXMxKGZhOmZhLWJ1bGxob3JuIEQtQnVzKVxuICBjbDEgLS0-fGh0dHBzIEdFVHwgcHJ4XG4gIGZ3ZDEgLS0-IGlwdGFibGVzKGZhOmZhLXN0cmVhbSBpcHRhYmxlcylcbiAgZndkMSAtLT4gaXBzZXQoZmE6ZmEtbGlzdCBpcHNldClcbmVuZFxuIiwibWVybWFpZCI6eyJ0aGVtZSI6ImRlZmF1bHQifX0](docs/environment-diagram.png)
 
-### Installing
+### Quick-start
 
 ```
+git clone https://github.com/korc/openc2-firewalld && cd openc2-firewalld
 sudo apt install gnutls-bin golang firewalld
-export GOPATH=$PWD/go
-go get -u github.com/korc/openc2-firewalld/cmd/firewalld-oc2-client
-go get -u github.com/korc/openc2-firewalld/cmd/oc2-proxy-server
-$GOPATH/src/github.com/korc/openc2-firewalld/test/gen-certs.sh
-$GOPATH/bin/oc2-proxy-server &
-sudo systemctl start firewalld
-sudo $GOPATH/bin/firewalld-oc2-client
+mkdir -p run-$$ && cd run-$$
+../test/gen-certs.sh
+go run ../cmd/oc2-proxy-server -cmdschema ../test/command-schema.json -respschema ../test/response-schema.json &
+sudo systemctl start firewalld && sudo go run ../cmd/firewalld-oc2-client &
+../test/test-request.sh ../test/test-query.json
 ```
 
 ## Command-line options

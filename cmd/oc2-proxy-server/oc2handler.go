@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -10,18 +11,20 @@ import (
 	"time"
 
 	"github.com/korc/openc2-firewalld"
+	"github.com/santhosh-tekuri/jsonschema"
 )
 
 type openC2AssetRecord struct {
-	lastAccess time.Time
-	queueIndex int
+	LastAccess time.Time
+	QueueIndex int
 }
 
 type OpenC2RequestMultiplexer struct {
 	commandQueue []*openc2.OpenC2Command
 	assets       map[string]*openC2AssetRecord
-	reqCount     int64
 	modReq       *sync.Mutex
+	cmdSchema    *jsonschema.Schema
+	respSchema   *jsonschema.Schema
 }
 
 func (rqm *OpenC2RequestMultiplexer) handleCORSOptions(w http.ResponseWriter, r *http.Request) {
@@ -62,20 +65,107 @@ func (rqm *OpenC2RequestMultiplexer) handlePost(w http.ResponseWriter, r *http.R
 	if origin := r.Header.Get("Origin"); origin != "" {
 		w.Header().Add("Access-Control-Allow-Origin", origin)
 	}
+	if requestId := r.Header.Get(openc2.OpenC2RequestIDHeader); requestId != "" {
+		w.Header().Set(openc2.OpenC2RequestIDHeader, requestId)
+	}
+	if rqm.cmdSchema != nil {
+		if err := rqm.cmdSchema.Validate(bytes.NewReader(body)); err != nil {
+			log.Printf("Schema validation failed: %s", err)
+			rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusBadRequest,
+				StatusText: "Data not compliant to schema"})
+			return
+		}
+	}
 	var oc2cmd *openc2.OpenC2Command
 	log.Printf("Unmarshalling: %#v", string(body))
 	if err := json.Unmarshal(body, &oc2cmd); err != nil {
 		log.Print("Unmarshal error: ", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid data"))
+		rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusNotImplemented, StatusText: "Can't unmarshal that"})
 		return
 	}
+	rqm.modReq.Lock()
 	rqm.commandQueue = append(rqm.commandQueue, oc2cmd)
-	w.WriteHeader(http.StatusOK)
-	d, _ := json.Marshal(openc2.OpenC2Response{Status: 200, StatusText: "Command added to the queue."})
-	w.Write([]byte(d))
+	rqm.modReq.Unlock()
+	if oc2cmd.Action == openc2.ActionQuery {
+		rqm.handleActionQuery(w, oc2cmd)
+		return
+	}
+	sendResponse := true
+	if args, ok := oc2cmd.Args.(map[string]interface{}); ok {
+		if rr, ok := args["response_requested"]; ok {
+			log.Printf("Response Requested: %#v", rr)
+			if rr == "none" {
+				sendResponse = false
+			}
+		} else {
+			log.Printf("No response requested")
+		}
+	}
+	if sendResponse {
+		rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusOK, StatusText: "Command added to the queue."})
+	} else {
+		w.WriteHeader(http.StatusNoContent)
+	}
 	log.Printf("Added to queue: %#v, %d assets listening: %#v", oc2cmd, len(rqm.assets), rqm.assets)
 	return
+}
+
+var supportedTargets = []openc2.OpenC2TargetType{
+	openc2.TargetTypeIPv4Net,
+	openc2.TargetTypeIPv4Connection,
+	openc2.TargetTypeIPv6Net,
+	openc2.TargetTypeIPv6Connection,
+}
+
+func (rqm *OpenC2RequestMultiplexer) handleActionQuery(w http.ResponseWriter, cmd *openc2.OpenC2Command) {
+	if args, haveArgs := cmd.Args.(map[string]interface{}); haveArgs {
+		if rr, haveRR := args["response_requested"]; haveRR {
+			if rr != "complete" {
+				log.Printf("failed action=query arguments.response_requested check")
+				rqm.sendOpenC2Response(w, openc2.OpenC2Response{Status: openc2.StatusBadRequest, StatusText: "response_requested != 'complete'"})
+				return
+			}
+		}
+	}
+	resp := openc2.OpenC2Response{Status: openc2.StatusOK}
+	if target, haveTarget := cmd.Target.(openc2.OpenC2GenericTarget); haveTarget {
+		if features, haveFeatures := target["features"]; haveFeatures {
+			if flist, haveFList := features.([]interface{}); haveFList {
+				for _, f := range flist {
+					switch f {
+					case "versions":
+						resp.AddResults("versions", []string{"1.0"})
+					case "profiles":
+						resp.AddResults("profiles", []string{"slpf"})
+					case "pairs":
+						resp.AddResults("pairs", map[string]interface{}{
+							"allow": supportedTargets,
+							"deny":  supportedTargets,
+							"query": []string{"features"},
+						})
+					default:
+						log.Printf("WARNING: Unkonwn features in query: %#v", f)
+
+					}
+				}
+			}
+		}
+	}
+	log.Printf("resp: %#v", resp)
+	rqm.sendOpenC2Response(w, resp)
+}
+
+func (rqm *OpenC2RequestMultiplexer) sendOpenC2Response(w http.ResponseWriter, resp openc2.OpenC2Response) {
+	st := resp.Status
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("Cannot marshal response: %s", err)
+		st = http.StatusInternalServerError
+		data = []byte("Error")
+	}
+	w.Header().Set("Cache-control", "no-cache")
+	w.WriteHeader(int(st))
+	w.Write(data)
 }
 
 func (rqm *OpenC2RequestMultiplexer) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -87,29 +177,32 @@ func (rqm *OpenC2RequestMultiplexer) handleGet(w http.ResponseWriter, r *http.Re
 	} else {
 		assetID = r.Header.Get(openc2.OpenC2AssetIDHeader)
 	}
+	rqm.modReq.Lock()
 	if gotAsset, ok := rqm.assets[assetID]; !ok {
 		if !useTLS || assetID == "" {
 			assetID = RandStringBytes(16)
 		}
-		asset = &openC2AssetRecord{lastAccess: time.Now(), queueIndex: 0}
+		asset = &openC2AssetRecord{LastAccess: time.Now(), QueueIndex: len(rqm.commandQueue)}
 		rqm.assets[assetID] = asset
+		rqm.modReq.Unlock()
 		w.Header().Set(openc2.OpenC2AssetIDHeader, assetID)
 		log.Printf("Created new asset ID: %#v", assetID)
 	} else {
 		asset = gotAsset
+		rqm.modReq.Unlock()
 		log.Printf("Asset ID: %#v", assetID)
 	}
 
-	asset.lastAccess = time.Now()
-	if len(rqm.commandQueue) > asset.queueIndex {
-		nextCommand := rqm.commandQueue[asset.queueIndex]
+	asset.LastAccess = time.Now()
+	if len(rqm.commandQueue) > asset.QueueIndex {
+		nextCommand := rqm.commandQueue[asset.QueueIndex]
 		commandData, err := json.Marshal(nextCommand)
 		if err != nil {
 			log.Printf("Cannot marshal command to data %#v: %s", nextCommand, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		asset.queueIndex = asset.queueIndex + 1
+		asset.QueueIndex = asset.QueueIndex + 1
 		w.Header().Set("Content-Type", openc2.OpenC2CommandType)
 		w.WriteHeader(http.StatusOK)
 		w.Write(commandData)

@@ -1,0 +1,14 @@
+{
+  "action": "allow",
+  "target": {
+    "ipv4_connection": {
+      "protocol": "tcp",
+      "src_addr": "1.2.3.4",
+      "dst_addr": "198.2.3.4",
+      "dst_port": 80
+    }
+  },
+  "actuator": {
+    "slpf": {}
+  }
+}

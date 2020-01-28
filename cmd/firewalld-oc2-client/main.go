@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io/ioutil"
 	"log"
@@ -15,6 +16,9 @@ import (
 
 const clientVersion = "0.1"
 const userAgent = "OpenC2-FirewallD-Client/" + clientVersion
+
+var UnknownActionError = errors.New("Unknown action")
+var UnknownTargetError = errors.New("Unknown target type")
 
 func main() {
 	fwdctrl, err := NewFirewallDControl()

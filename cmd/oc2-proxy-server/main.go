@@ -3,13 +3,17 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
-	"github.com/korc/openc2-firewalld"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+
+	"github.com/korc/openc2-firewalld"
+	"github.com/santhosh-tekuri/jsonschema"
+	jsonSchemaDecoders "github.com/santhosh-tekuri/jsonschema/decoders"
 )
 
 func main() {
@@ -20,16 +24,32 @@ func main() {
 	certFile := flag.String("cert", "server.crt", "Server certificate")
 	keyFile := flag.String("key", "server.key", "Private key for certificate")
 	caCertFile := flag.String("cacert", "ca.crt", "Client CA certificate")
+	cmdSchemaFile := flag.String("cmdschema", "", "Commands JSON-schema file")
+	respSchemaFile := flag.String("respschema", "", "Responses JSON-schema file")
 	flag.Parse()
 	mplx := NewOpenC2RequestMultiplexer()
+	jsonSchemaDecoders.Register("base16", hex.DecodeString)
+	if *cmdSchemaFile != "" {
+		if sch, err := jsonschema.Compile(*cmdSchemaFile); err != nil {
+			log.Fatalf("Cannot read commands JSON schema from %#v: %s", *cmdSchemaFile, err)
+		} else {
+			mplx.cmdSchema = sch
+		}
+	}
+	if *respSchemaFile != "" {
+		if sch, err := jsonschema.Compile(*cmdSchemaFile); err != nil {
+			log.Fatalf("Cannot read response JSON schema from %#v: %s", *respSchemaFile, err)
+		} else {
+			mplx.respSchema = sch
+		}
+	}
 	http.Handle(*oc2path, mplx)
 	http.HandleFunc("/debug", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(struct {
-			Commands     []*openc2.OpenC2Command
-			Assets       map[string]*openC2AssetRecord
-			RequestCount int64
-		}{mplx.commandQueue, mplx.assets, mplx.reqCount}); err != nil {
+			Commands []*openc2.OpenC2Command
+			Assets   map[string]*openC2AssetRecord
+		}{mplx.commandQueue, mplx.assets}); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			log.Print("Error: ", err)
 			w.Write([]byte("Bad things happen."))
