@@ -135,39 +135,40 @@ func (fwd *FirewallDControl) OpenC2Act(oc2cmd openc2.OpenC2Command) error {
 	var policy FwDPolicy
 	var ruleId float64
 	haveRuleId := false
+	argsSlpf := make(map[string]interface{})
+	if args, ok := oc2cmd.Args.(map[string]interface{}); ok {
+		if slpf, ok := args["slpf"]; ok {
+			if slpfMap, ok := slpf.(map[string]interface{}); ok {
+				argsSlpf = slpfMap
+			}
+		}
+	}
 	switch oc2cmd.Action {
 	case openc2.ActionDeny:
 		policy = FwDPolicyReject
-		if args, haveArgs := oc2cmd.Args.(map[string]interface{}); haveArgs {
-			log.Printf("slpf arg")
-			if slpf, haveSlpf := args["slpf"]; haveSlpf {
-				if slpfMap, haveSlpfMap := slpf.(map[string]interface{}); haveSlpfMap {
-					if dropProcess, haveDP := slpfMap["drop_process"]; haveDP {
-						switch dropProcess {
-						case "none":
-							policy = FwDPolicyDrop
-						case "false_ack":
-							policy = FwDPolicyRejectFalseAck
-						case "reject":
-							policy = FwDPolicyReject
-						default:
-							log.Printf("WARNING: unknown drop_process: %#v", dropProcess)
-						}
-					}
-					if insertRule, haveInsertRule := slpfMap["insert_rule"]; haveInsertRule {
-						if insertRuleFloat, ok := insertRule.(float64); ok {
-							ruleId = insertRuleFloat
-							haveRuleId = true
-						}
-					}
-				}
+		if dropProcess, ok := argsSlpf["drop_process"]; ok {
+			switch dropProcess {
+			case "none":
+				policy = FwDPolicyDrop
+			case "false_ack":
+				policy = FwDPolicyRejectFalseAck
+			case "reject":
+				policy = FwDPolicyReject
+			default:
+				log.Printf("WARNING: unknown drop_process: %#v", dropProcess)
+			}
+		}
+		if insertRule, ok := argsSlpf["insert_rule"]; ok {
+			if insertRuleFloat, ok := insertRule.(float64); ok {
+				ruleId = insertRuleFloat
+				haveRuleId = true
 			}
 		}
 	case openc2.ActionAllow:
 		policy = FwDPolicyAccept
 	case openc2.ActionDelete:
-		if target, haveTarget := oc2cmd.Target.(openc2.OpenC2GenericTarget); haveTarget {
-			if slpfRuleNumber, haveSlpfRuleNr := target["slpf:rule_number"]; haveSlpfRuleNr {
+		if target, ok := oc2cmd.Target.(openc2.OpenC2GenericTarget); ok {
+			if slpfRuleNumber, ok := target["slpf:rule_number"]; ok {
 				if slpfRuleNumberInt, ok := slpfRuleNumber.(float64); ok {
 					if rule, ok := fwd.ruleIdMap[slpfRuleNumberInt]; ok {
 						if callret, err := fwd.RemoveIC2Rule(rule); err != nil {
