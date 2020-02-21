@@ -1,0 +1,15 @@
+FROM golang:alpine AS builder
+RUN apk update && apk add --no-cache git
+
+COPY . $GOPATH/src/openc2-firewalld/
+WORKDIR $GOPATH/src/openc2-firewalld/
+
+RUN go get -v
+RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /go/bin/oc2-proxy-server ./cmd/oc2-proxy-server
+
+FROM scratch
+COPY --from=builder /go/bin/oc2-proxy-server /opt/bin/oc2-proxy-server
+VOLUME [ "/data" ]
+WORKDIR /data
+EXPOSE 1512
+ENTRYPOINT ["/opt/bin/oc2-proxy-server"]
